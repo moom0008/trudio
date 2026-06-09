@@ -1,0 +1,99 @@
+body {
+    background-color: transparent;
+}
+.container {
+    text-align: center;
+    top: 0;
+    height: 60vh;
+    width: 40vh;
+    margin: auto;
+    position: relative;
+    transform: translateY(20%);
+    border: 1px solid transparent;
+    box-shadow: 5px 3px 10px rgba(0,0,0,0.1);
+    border-radius: 10px;
+    padding: 20px;
+}
+.container div a button{
+    margin-bottom: 15px;
+    margin-top: 15px;
+    border: transparent;
+    background-color: transparent;
+    box-shadow: 5px 3px 10px rgba(0,0,0,0.1);;
+    border-radius: 5px;
+    padding: 10px;
+    cursor: pointer;
+    font-weight: bold;
+    color: rgb(126, 0, 0);
+    text-shadow: 5px 3px 10px rgba(0,0,0,0.1);
+}
+.container div {
+    margin-bottom: 15px;
+    margin-top: 10px;
+}
+.container select {
+    background-color: transparent;
+    border: transparent;
+    margin: 2px;
+    width: 150px;
+    backdrop-filter: blur(5px);
+    appearance: none;
+    background-image: none;
+    padding-right: 12px;
+}
+#fileSelect {
+    width: 300px;
+}
+hr {
+    border: 1px solid rgb(211, 169, 118);
+}
+.container div input {
+    transform: translateY(2px);
+}
+    
+.nut {
+    background-color: transparent;
+    border: transparent;
+}
+
+.thanh input {
+    width: 50px;
+    
+}
+.controls {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 10px;
+}
+.nut1 {
+    background-color: transparent;
+    border: transparent;
+    font-size: 20px;
+    cursor: pointer;
+    color: rgb(126, 0, 0);
+    text-shadow: 5px 3px 10px rgba(0,0,0,0.1);
+}
+.currentText {
+    width: 100%;
+    height: 100px;
+    overflow-y: auto;
+    margin-bottom: 10px;
+    border: 1px solid rgb(211, 169, 118);
+}
+.chon {
+    border: 1px solid rgb(211, 169, 118);
+    width: 50%;
+}
+.menuchon {
+    height: 15%;
+}
+.mo {
+    position: absolute;
+    background-color: transparent;
+    border: transparent;
+    font-weight: bold;
+    text-shadow: 1px 1px 2px rgb(211, 169, 118);
+    cursor: pointer;
+    right: 80px;
+}
