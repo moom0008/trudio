@@ -1,0 +1,748 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Audio</title>
+    <link rel="stylesheet" href="/static/css/index.css">
+    <style>
+        
+    </style>
+</head>
+<body>
+<div class="container">
+    <div style="text-align:center; margin-bottom:10px; display:flex; gap:8px; justify-content:center;">
+        <a href="/upload_split"><button id="uploadBtn">thêm truyện</button></a>
+        <a href="https://datdemo.duckdns.org:18423"><button id="uploadBtn">tải truyện của fanque</button></a>
+    </div>
+
+<hr>
+    
+    <div class="progress-container">
+        <label><span id="progressLabel">0/0</span></label>
+        <input type="range" id="progressBar" min="0" value="0" oninput="onProgressBarChange(this.value)">
+       
+     <span hidden class="thanh" id="thanh"><input  type="range" id="speedControl" min="1" max="5" step="0.1" value="1" oninput="changeSpeed(this.value)"></span>
+
+        <button class="nut" onclick="thanh.hidden ^=1,cong.hidden ^=1,tru.hidden ^=1,progressLabel.hidden ^=1,progressBar.hidden ^=1"><span id="speedLabel">1.0</span>x
+        <button onclick="A()" id="cong" hidden>+</button> 
+        <button onclick="B()" id="tru" hidden>-</button>
+        </button>
+
+    </div>
+    <div style="margin: 10px 0; font-size: 12px;">
+        <p id="chunkStatus" style="margin: 0; padding: 5px; background: #f0f0f0; border-radius: 3px;" hidden>Chunk: 0/5 (0%)</p>
+    </div>
+    
+   
+    <!-- Transition / crossfade removed to avoid playback/speed glitches -->
+
+    <div class="controls">
+        <button class="nut1" onclick="outline()">👈</button>
+        <button class="nut1" onclick="togglePlay()" id="playBtn">✊</button>
+        <button class="nut1" onclick="nextLine()">👉</button>
+    </div>
+    <br>
+    <hr class="chon">
+    <div class="menuchon">
+    <select id="folderSelect" onchange="loadFiles()"></select>
+    <br>
+    <select id="fileSelect" onchange="loadFileContent()"></select>
+    </div>
+    <p class="status" id="statusMsg"></p>
+
+    <audio id="audioPlayer" style="display:none;"></audio>
+</div>
+<script>
+    (function() {
+    const originalLog = console.log;
+
+    console.log = function(...args) {
+        // Gọi lại log gốc
+        originalLog.apply(console, args);
+
+        // Kiểm tra nội dung log
+        const message = args.join(" ");
+
+        if (message.includes("Playing line 0 at offset 0s")) {
+            setTimeout(() => {
+                const btn = document.getElementById("playBtn");
+                if (btn) {
+                    btn.click();
+                }
+            }, 200); // 200ms
+        }
+    };
+})();
+/////////////
+    function A() {
+        const speed = document.getElementById('speedControl').value;
+        if (speed < 5.0) {
+            changeSpeedRelative(+0.1)
+        } else {
+            document.getElementById('speedControl').value = 1;
+            changeSpeed(1.0);
+        }
+    }
+/////////////
+    function B() {
+        const speed = document.getElementById('speedControl').value;
+        if (speed < 5.0) {
+            changeSpeedRelative(-0.1)
+        } else {
+            document.getElementById('speedControl').value = 1;
+            changeSpeed(-1.0);
+        }
+    }
+    let contentLines = [];
+    let currentIndex = 0;
+    let isPlaying = false;
+    let audio = document.getElementById('audioPlayer');
+    let currentPreload = null;
+    let currentFileName = '';
+    let currentFolder = '';
+    
+    // Full file audio
+    let fileOffsets = [];  // offsets[i] = start time (seconds) of line i in audio
+    let audioLoading = false;
+    let audioReady = false; // Track if audio is ready to play
+    
+    // Cache loaded files: key = "folder/filename" -> {blob, offsets}
+    let loadedFiles = {};
+    let prefetchingNext = false;
+    
+    // Khi trang web load
+    window.onload = async function() {
+        await loadFolders();
+        loadProgress(); // Khôi phục trạng thái cũ
+    };
+
+    // 1. Load danh sách truyện
+    async function loadFolders() {
+        const res = await fetch('/api/list_files');
+        const data = await res.json();
+        const folderSelect = document.getElementById('folderSelect');
+        folderSelect.innerHTML = '';
+        
+        for (const [folder, files] of Object.entries(data)) {
+            let opt = document.createElement('option');
+            opt.value = folder;
+            opt.innerText = folder;
+            // Lưu danh sách file vào thuộc tính data để dùng sau
+            opt.dataset.files = JSON.stringify(files);
+            folderSelect.appendChild(opt);
+        }
+        loadFiles(); // Kích hoạt load file cho folder đầu tiên
+    }
+
+    // 2. Load danh sách file trong truyện
+    function loadFiles() {
+        const folderSelect = document.getElementById('folderSelect');
+        const fileSelect = document.getElementById('fileSelect');
+        const selectedOption = folderSelect.options[folderSelect.selectedIndex];
+        
+        if(!selectedOption) return;
+
+        const files = JSON.parse(selectedOption.dataset.files);
+        fileSelect.innerHTML = '';
+        files.forEach(f => {
+            let opt = document.createElement('option');
+            opt.value = f;
+            opt.innerText = f;
+            fileSelect.appendChild(opt);
+        });
+    }
+
+    // 3. Load nội dung text của file
+    async function loadFileContent(startFromSaved = false) {
+        const folder = document.getElementById('folderSelect').value;
+        const file = document.getElementById('fileSelect').value;
+        currentFolder = folder;
+        currentFileName = file;
+        
+        document.getElementById('statusMsg').innerText = "Đang tải nội dung (preload)...";
+
+        // Close any previous preload
+        if (currentPreload) {
+            try { currentPreload.close(); } catch(e){}
+            currentPreload = null;
+        }
+
+        // Disable controls while preloading
+        document.getElementById('playBtn').disabled = true;
+
+        // Start preload via SSE; server sẽ cache nội dung
+        const preloadUrl = `/api/preload?folder=${encodeURIComponent(folder)}&file=${encodeURIComponent(file)}`;
+        const es = new EventSource(preloadUrl);
+        currentPreload = es;
+
+        // Reset progress visuals
+        document.getElementById('progressBar').value = 0;
+        document.getElementById('progressBar').max = 1;
+
+        es.onmessage = function(event) {
+            console.log('[SSE]', event.data);
+            try {
+                const d = JSON.parse(event.data);
+                if (d.total) {
+                    document.getElementById('progressBar').max = Math.max(d.total - 1, 0);
+                }
+                if (d.loaded !== undefined) {
+                    const idx = Math.max(d.loaded - 1, 0);
+                    document.getElementById('progressBar').value = idx;
+                    document.getElementById('progressLabel').innerText = `${d.loaded}/${d.total || '?'} `;
+                    document.getElementById('statusMsg').innerText = `Preloading: ${d.loaded}/${d.total} (${d.progress}%)`;
+                }
+
+                if (d.status === 'done') {
+                    try { es.close(); } catch(e){}
+                    currentPreload = null;
+                    document.getElementById('statusMsg').innerText = `Preload hoàn tất: ${d.loaded} đoạn.`;
+
+                    // Now request the cached content and load full file audio
+                    (async () => {
+                        const res = await fetch(`/api/get_text?folder=${encodeURIComponent(folder)}&file=${encodeURIComponent(file)}`);
+                        const data = await res.json();
+                        contentLines = data.lines;
+                        document.getElementById('progressBar').max = Math.max(contentLines.length - 1, 0);
+
+                        // Re-enable controls
+                        document.getElementById('playBtn').disabled = false;
+
+                        if (!startFromSaved) {
+                            currentIndex = 0;
+                            // Load full file audio
+                            await loadFullFileAudio();
+                        }
+                        updateUI();
+                    })();
+                }
+            } catch (e) {
+                console.error('Invalid preload message', e);
+            }
+        };
+
+        es.onerror = function(err) {
+            console.error('Preload error', err);
+            try { es.close(); } catch(e){}
+            currentPreload = null;
+            document.getElementById('statusMsg').innerText = 'Lỗi preload, thử tải trực tiếp.';
+            document.getElementById('playBtn').disabled = false;
+            
+            // Fallback: directly fetch text
+            (async () => {
+                const res = await fetch(`/api/get_text?folder=${encodeURIComponent(folder)}&file=${encodeURIComponent(file)}`);
+                const data = await res.json();
+                contentLines = data.lines;
+                document.getElementById('progressBar').max = Math.max(contentLines.length - 1, 0);
+
+                if (!startFromSaved) {
+                    currentIndex = 0;
+                    await loadFullFileAudio();
+                }
+                updateUI();
+            })();
+        };
+    }
+
+    // Load full file audio (entire text → 1 WAV)
+    async function loadFullFileAudio() {
+        const folder = currentFolder;
+        const file = currentFileName;
+        const cacheKey = `${folder}/${file}`;
+        
+        audioReady = false;
+        
+        // Check if already cached
+        if (loadedFiles[cacheKey]) {
+            console.log(`[Cache HIT] ${cacheKey}`);
+            const cached = loadedFiles[cacheKey];
+            fileOffsets = cached.offsets;
+            
+            const blobUrl = URL.createObjectURL(cached.blob);
+            audio.pause();
+            audio.currentTime = 0;
+            if (audio.src && audio.src.startsWith('blob:')) {
+                URL.revokeObjectURL(audio.src);
+            }
+            audio.src = blobUrl;
+            
+            document.getElementById('statusMsg').innerText = "Từ cache. Sẵn sàng phát.";
+            document.getElementById('chunkStatus').innerText = "Sẵn sàng";
+            audioLoading = false;
+            
+            // Restore playback speed
+            const speedControl = document.getElementById('speedControl');
+            if (speedControl) {
+                const speed = parseFloat(speedControl.value);
+                audio.playbackRate = speed;
+            }
+            
+            await new Promise((resolve) => {
+                const onReady = () => {
+                    audioReady = true;
+                    audio.removeEventListener('canplay', onReady);
+                    resolve();
+                };
+                audio.addEventListener('canplay', onReady);
+                setTimeout(() => {
+                    audioReady = true;
+                    audio.removeEventListener('canplay', onReady);
+                    resolve();
+                }, 2000);
+            });
+            
+            return;
+        }
+        
+        document.getElementById('statusMsg').innerText = "ñang tải audio...";
+        document.getElementById('chunkStatus').innerText = "ñang tải vui loøng chờ...";
+        audioLoading = true;
+
+        try {
+            console.log(`Loading audio for ${folder}/${file}`);
+            const res = await fetch(`/api/tts_file?folder=${encodeURIComponent(folder)}&file=${encodeURIComponent(file)}`);
+            if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+            
+            console.log('Fetch successful, creating blob...');
+            const blob = await res.blob();
+            console.log(`Blob size: ${blob.size} bytes, type: ${blob.type}`);
+            
+            const blobUrl = URL.createObjectURL(blob);
+            console.log(`Blob URL created: ${blobUrl}`);
+            
+            // Stop current audio and clear src
+            audio.pause();
+            audio.currentTime = 0;
+            if (audio.src && audio.src.startsWith('blob:')) {
+                URL.revokeObjectURL(audio.src);
+            }
+            
+            audio.src = blobUrl;
+            audio.load(); // Force reload
+            
+            // Parse offsets from headers
+            fileOffsets = JSON.parse(res.headers.get('X-Offsets') || '[]');
+            console.log(`Loaded full file: ${contentLines.length} lines, ${fileOffsets.length} offsets`);
+            
+            // Save to cache
+            loadedFiles[cacheKey] = {blob, offsets: fileOffsets};
+            console.log(`[Cache SAVED] ${cacheKey}`);
+            
+            document.getElementById('statusMsg').innerText = "load audio hoàn tất. Sẵn sàng phát.";
+            document.getElementById('chunkStatus').innerText = "Sẵn sàng";
+            audioLoading = false;
+            
+            // Wait for audio to be ready
+            await new Promise((resolve, reject) => {
+                const onCanPlay = () => {
+                    console.log('Audio can play!');
+                    audioReady = true;
+                    audio.removeEventListener('canplay', onCanPlay);
+                    audio.removeEventListener('error', onError);
+                    resolve();
+                };
+                const onError = (e) => {
+                    console.error('Audio load error:', e);
+                    audio.removeEventListener('canplay', onCanPlay);
+                    audio.removeEventListener('error', onError);
+                    reject(e);
+                };
+                audio.addEventListener('canplay', onCanPlay);
+                audio.addEventListener('error', onError);
+                
+                // Timeout after 10 seconds
+                setTimeout(() => {
+                    console.warn('Audio load timeout');
+                    audio.removeEventListener('canplay', onCanPlay);
+                    audio.removeEventListener('error', onError);
+                    audioReady = true;
+                    resolve();
+                }, 10000);
+            });
+            
+            // Restore playback speed
+            const speedControl = document.getElementById('speedControl');
+            if (speedControl) {
+                const speed = parseFloat(speedControl.value);
+                audio.playbackRate = speed;
+            }
+            
+            // After loading, try to prefetch next file
+            prefetchNextFile();
+            
+        } catch (e) {
+            console.error('Load full file error', e);
+            document.getElementById('statusMsg').innerText = 'tải audio thất bại: ' + e.message;
+            document.getElementById('chunkStatus').innerText = "thất bại";
+            audioLoading = false;
+        }
+    }
+    
+    // Prefetch next file in background (async, non-blocking)
+    async function prefetchNextFile() {
+        if (prefetchingNext) return; // Already prefetching
+        
+        const folder = currentFolder;
+        const file = currentFileName;
+        
+        try {
+            // Get next file info
+            const res = await fetch(`/api/next_file?folder=${encodeURIComponent(folder)}&file=${encodeURIComponent(file)}`);
+            if (!res.ok) return;
+            
+            const data = await res.json();
+            if (!data.next_folder || !data.next_file) {
+                console.log('No next file to prefetch');
+                return;
+            }
+            
+            const nextCacheKey = `${data.next_folder}/${data.next_file}`;
+            
+            // Check if already cached
+            if (loadedFiles[nextCacheKey]) {
+                console.log(`[Prefetch] ${nextCacheKey} already cached`);
+                return;
+            }
+            
+            console.log(`[Prefetch START] ${nextCacheKey}`);
+            prefetchingNext = true;
+            
+            // Read next file content
+            const textRes = await fetch(`/api/get_text?folder=${encodeURIComponent(data.next_folder)}&file=${encodeURIComponent(data.next_file)}`);
+            if (!textRes.ok) {
+                prefetchingNext = false;
+                return;
+            }
+            
+            const textData = await textRes.json();
+            
+            // Fetch next file audio in background
+            const audioRes = await fetch(`/api/tts_file?folder=${encodeURIComponent(data.next_folder)}&file=${encodeURIComponent(data.next_file)}`);
+            if (!audioRes.ok) {
+                prefetchingNext = false;
+                return;
+            }
+            
+            const blob = await audioRes.blob();
+            const offsets = JSON.parse(audioRes.headers.get('X-Offsets') || '[]');
+            
+            // Save to cache
+            loadedFiles[nextCacheKey] = {blob, offsets};
+            console.log(`[Prefetch DONE] ${nextCacheKey} - ${blob.size} bytes`);
+            document.getElementById('chunkStatus').innerText = `Prefetch: ${nextCacheKey} sẵn sàng!`;
+            
+            prefetchingNext = false;
+        } catch (e) {
+            console.error('[Prefetch ERROR]', e);
+            prefetchingNext = false;
+        }
+    }
+
+    // 4. Play a line by setting audio.currentTime to its offset
+    async function playLine(index, autoPlay = true) {
+        const allLines = contentLines || [];
+        
+        // Validate index bounds
+        if (index < 0) index = 0;
+        if (index >= allLines.length) return;
+        
+        currentIndex = index;
+        
+        // Update display
+       
+        
+        document.getElementById('progressLabel').innerText = `${index + 1}/${allLines.length}`;
+        document.getElementById('progressBar').value = index;
+        
+        // Save progress
+        saveProgress();
+        
+        // Use offset to seek to this line's audio position
+        if (fileOffsets && fileOffsets.length > index && fileOffsets[index] !== undefined) {
+            const offset = fileOffsets[index];
+            audio.currentTime = offset;
+            console.log(`Playing line ${index} at offset ${offset}s`);
+        } else {
+            console.warn(`No offset available for line ${index}`);
+        }
+        
+        // Auto-play only if requested AND audio is ready (with 1s delay to ensure stability)
+        if (autoPlay && audioReady) {
+            try {
+                // Wait 1s before playing to ensure audio is fully ready
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                await audio.play();
+                isPlaying = true;
+                document.getElementById('playBtn').innerText = "🫶";
+            } catch (e) {
+                console.log("Autoplay blocked or error:", e);
+            }
+        }
+    }
+
+    // Handle audio timeupdate - sync current line display as audio plays
+    audio.ontimeupdate = function() {
+        if (!fileOffsets || fileOffsets.length === 0) return;
+        
+        // Find which line we're currently playing
+        const currentTime = audio.currentTime;
+        let lineIndex = 0;
+        
+        for (let i = 0; i < fileOffsets.length; i++) {
+            if (fileOffsets[i] <= currentTime) {
+                lineIndex = i;
+            } else {
+                break;
+            }
+        }
+        
+        if (lineIndex !== currentIndex && lineIndex < contentLines.length) {
+            currentIndex = lineIndex;
+            document.getElementById('progressLabel').innerText = `${lineIndex + 1}/${contentLines.length}`;
+            document.getElementById('progressBar').value = lineIndex;
+        }
+    };
+
+    // Handle audio ended
+    audio.onended = async function() {
+        const allLines = contentLines || [];
+        const totalLines = allLines.length;
+        
+        if (currentIndex < totalLines - 1) {
+            // Auto-advance to next line
+            playLine(currentIndex + 1, true);
+        } else {
+            // End of file - advance to next file
+            document.getElementById('statusMsg').innerText = "Hết file. Chuyển sang file tiếp theo...";
+            isPlaying = false;
+            document.getElementById('playBtn').innerText = "|>";
+            advanceToNextFile();
+        }
+    };
+
+    // Advance to next file automatically when current file is finished.
+    async function advanceToNextFile() {
+        const folder = currentFolder;
+        const file = currentFileName;
+        document.getElementById('statusMsg').innerText = 'Tìm file tiếp theo...';
+        const speed = document.getElementById('speedControl').value;
+
+        try {
+            const res = await fetch(`/api/get_text?folder=${encodeURIComponent(folder)}&file=${encodeURIComponent(file)}&line_index=${contentLines.length}&playback_speed=${encodeURIComponent(speed)}`);
+            if (!res.ok) throw new Error('No next file');
+            const data = await res.json();
+
+            if (!data.lines || data.lines.length === 0) {
+                document.getElementById('statusMsg').innerText = 'Không còn file tiếp theo.';
+                return;
+            }
+
+            // Update folder/file selectors if server returned different file
+            if (data.folder && data.file) {
+                document.getElementById('folderSelect').value = data.folder;
+                loadFiles();
+                // small delay to ensure fileSelect is populated
+                setTimeout(() => {
+                    document.getElementById('fileSelect').value = data.file;
+                }, 80);
+            }
+
+            // Reset and load new file
+            contentLines = data.lines;
+            currentFileName = data.file || file;
+            currentFolder = data.folder || folder;
+            document.getElementById('progressBar').max = Math.max(contentLines.length - 1, 0);
+            currentIndex = 0;
+
+            const nextCacheKey = `${currentFolder}/${currentFileName}`;
+            
+            // Check if next file already cached
+            if (loadedFiles[nextCacheKey]) {
+                console.log(`[Advance] Using cached file: ${nextCacheKey}`);
+                const cached = loadedFiles[nextCacheKey];
+                fileOffsets = cached.offsets;
+                
+                const blobUrl = URL.createObjectURL(cached.blob);
+                audio.pause();
+                audio.currentTime = 0;
+                isPlaying = false;
+                audioReady = false;
+                
+                if (audio.src && audio.src.startsWith('blob:')) {
+                    URL.revokeObjectURL(audio.src);
+                }
+                audio.src = blobUrl;
+                
+                document.getElementById('statusMsg').innerText = 'Từ cache! Sẵn sàng phát.';
+                document.getElementById('chunkStatus').innerText = 'Cache: sẵn sàng';
+                
+                // Restore playback speed
+                const speedCtrl = document.getElementById('speedControl');
+                if (speedCtrl) {
+                    const speed = parseFloat(speedCtrl.value);
+                    audio.playbackRate = speed;
+                }
+                
+                // Wait for audio to be ready
+                await new Promise((resolve) => {
+                    const onReady = () => {
+                        audioReady = true;
+                        audio.removeEventListener('canplay', onReady);
+                        resolve();
+                    };
+                    audio.addEventListener('canplay', onReady);
+                    setTimeout(() => {
+                        audioReady = true;
+                        audio.removeEventListener('canplay', onReady);
+                        resolve();
+                    }, 2000);
+                });
+                
+                // Reset to first line without auto-playing
+                currentIndex = 0;
+                playLine(0, false);
+                document.getElementById('statusMsg').innerText = 'chuyển chương thành công.';
+                
+                // Prefetch next-next file
+                prefetchNextFile();
+            } else {
+                // Load normally
+                console.log(`[Advance] Loading fresh: ${nextCacheKey}`);
+                const pad = data.padding_ms || 50;
+                setTimeout(() => {
+                    loadFullFileAudio();
+                }, pad);
+                
+                document.getElementById('statusMsg').innerText = 'đang tải audio tiếp theo...';
+            }
+        } catch (e) {
+            console.warn('Advance next file failed', e);
+            document.getElementById('statusMsg').innerText = 'không tìm thấy chương tiếp theo.';
+        }
+    }
+
+    // Điều khiển
+    function togglePlay() {
+        if (!audioReady) {
+            document.getElementById('statusMsg').innerText = 'Audio chưa sẵn sàng...';
+            return;
+        }
+        
+        if (isPlaying) {
+            audio.pause();
+            isPlaying = false;
+            document.getElementById('playBtn').innerText = "|>";
+        } else {
+            audio.play();
+            isPlaying = true;
+            document.getElementById('playBtn').innerText = "=";
+        }
+    }
+
+    function nextLine() {
+        if (currentIndex + 1 < contentLines.length) {
+            playLine(currentIndex + 1, true);
+        }
+    }
+    function outline() {
+        if (currentIndex > 0) {
+            playLine(currentIndex - 1, true);
+        }
+    }
+
+    function changeSpeed(val) {
+        document.getElementById('speedLabel').innerText = val;
+        audio.playbackRate = val;
+    }
+
+    // Adjust speed by delta (positive or negative), clamp to control min/max
+    function changeSpeedRelative(delta) {
+        const ctrl = document.getElementById('speedControl');
+        if (!ctrl) return;
+        const min = parseFloat(ctrl.min) || 1.0;
+        const max = parseFloat(ctrl.max) || 5.0;
+        const step = parseFloat(ctrl.step) || 0.1;
+        let val = parseFloat(ctrl.value) || 1.0;
+        val = Math.round((val + delta) / step) * step;
+        if (val < min) val = min;
+        if (val > max) val = max;
+        ctrl.value = val.toFixed((step.toString().split('.')[1] || '').length);
+        changeSpeed(ctrl.value);
+    }
+
+    // Handle progress bar slider - use native audio seeking
+    function onProgressBarChange(val) {
+        let idx = parseInt(val);
+        // Validate bounds
+        if (idx < 0) idx = 0;
+        if (idx >= contentLines.length) idx = contentLines.length - 1;
+        
+        playLine(idx, true);
+    }
+
+    function seekToLine(val) {
+        onProgressBarChange(val);
+    }
+
+    function updateUI() {
+        document.getElementById('progressLabel').innerText = `${currentIndex + 1}/${contentLines.length}`;
+    }
+
+    // --- LOGIC LƯU TRỮ (SAVE/LOAD PROGRESS) ---
+    
+    function saveProgress() {
+        const speedControl = document.getElementById('speedControl');
+        const state = {
+            folder: currentFolder,
+            file: currentFileName,
+            index: currentIndex,
+            speed: speedControl ? parseFloat(speedControl.value) : 1.0
+        };
+        localStorage.setItem('tts_progress', JSON.stringify(state));
+    }
+
+    function loadProgress() {
+        const saved = localStorage.getItem('tts_progress');
+        if (saved) {
+            const state = JSON.parse(saved);
+            
+            // Restore playback speed
+            const speedControl = document.getElementById('speedControl');
+            if (speedControl && state.speed) {
+                speedControl.value = state.speed;
+                changeSpeed(state.speed);
+            }
+            
+            // Set Folder
+            const folderSelect = document.getElementById('folderSelect');
+            folderSelect.value = state.folder;
+            loadFiles(); // Load lại list file của folder đó
+
+            // Set File
+            const fileSelect = document.getElementById('fileSelect');
+            fileSelect.value = state.file;
+
+            // Load Content và Jump tới index cũ
+            setTimeout(async () => {
+                const res = await fetch(`/api/get_text?folder=${encodeURIComponent(state.folder)}&file=${encodeURIComponent(state.file)}`);
+                const data = await res.json();
+                contentLines = data.lines;
+                document.getElementById('progressBar').max = contentLines.length - 1;
+                
+                // Nhảy tới dòng cũ
+                currentIndex = state.index;
+                currentFolder = state.folder;
+                currentFileName = state.file;
+                
+                // Load and play from saved position
+                await loadFullFileAudio();
+                playLine(currentIndex, false);
+                document.getElementById('statusMsg').innerText = `Đã khôi phục vị trí cũ: Đoạn ${currentIndex + 1}`;
+            }, 500);
+        }
+    }
+</script>
+
+</body>
+</html>
