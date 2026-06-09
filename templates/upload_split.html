@@ -1,0 +1,561 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Thêm Truyện</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700&family=Source+Code+Pro:wght@300;400&display=swap');
+
+        :root {
+            --ink: #1a1410;
+            --paper: #f5f0e8;
+            --accent: #c0392b;
+            --mid: #7a6a5a;
+            --line: #d4c9b5;
+            --success: #2c7a3a;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            background: var(--paper);
+            color: var(--ink);
+            font-family: 'Source Code Pro', monospace;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 40px 20px;
+            background-image:
+                repeating-linear-gradient(0deg, transparent, transparent 27px, var(--line) 27px, var(--line) 28px);
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+            position: relative;
+        }
+
+        .header h1 {
+            font-family: 'Playfair Display', serif;
+            font-size: clamp(2rem, 5vw, 3.5rem);
+            font-weight: 700;
+            letter-spacing: -1px;
+            position: relative;
+            display: inline-block;
+        }
+
+        .header h1::after {
+            content: '';
+            display: block;
+            height: 4px;
+            background: var(--accent);
+            margin-top: 6px;
+            transform: scaleX(0.6);
+            transform-origin: left;
+        }
+
+        .header p {
+            color: var(--mid);
+            margin-top: 10px;
+            font-size: 0.85rem;
+            letter-spacing: 0.05em;
+        }
+
+        .card {
+            background: #fff;
+            border: 1px solid var(--line);
+            border-top: 3px solid var(--ink);
+            padding: 32px;
+            width: 100%;
+            max-width: 600px;
+            box-shadow: 4px 4px 0 var(--line);
+            margin-bottom: 24px;
+        }
+
+        .card-title {
+            font-family: 'Playfair Display', serif;
+            font-size: 1.1rem;
+            font-weight: 700;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .card-title .num {
+            background: var(--ink);
+            color: var(--paper);
+            width: 24px;
+            height: 24px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-family: 'Source Code Pro', monospace;
+            font-size: 0.75rem;
+            flex-shrink: 0;
+        }
+
+        label {
+            display: block;
+            font-size: 0.75rem;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            color: var(--mid);
+            margin-bottom: 6px;
+            margin-top: 16px;
+        }
+
+        label:first-of-type { margin-top: 0; }
+
+        input[type="text"], select {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid var(--line);
+            border-bottom: 2px solid var(--ink);
+            background: var(--paper);
+            font-family: 'Source Code Pro', monospace;
+            font-size: 0.9rem;
+            color: var(--ink);
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        input[type="text"]:focus, select:focus {
+            border-color: var(--accent);
+            border-bottom-color: var(--accent);
+        }
+
+        .drop-zone {
+            border: 2px dashed var(--line);
+            padding: 40px 20px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s;
+            margin-top: 16px;
+            position: relative;
+            background: var(--paper);
+        }
+
+        .drop-zone:hover, .drop-zone.drag-over {
+            border-color: var(--accent);
+            background: #fdf8f3;
+        }
+
+        .drop-zone .icon {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            display: block;
+        }
+
+        .drop-zone p {
+            font-size: 0.85rem;
+            color: var(--mid);
+            line-height: 1.6;
+        }
+
+        .drop-zone p strong {
+            color: var(--accent);
+        }
+
+        .file-name {
+            margin-top: 12px;
+            font-size: 0.8rem;
+            color: var(--success);
+            font-weight: 400;
+            word-break: break-all;
+        }
+
+        #fileInput { display: none; }
+
+        .btn {
+            display: block;
+            width: 100%;
+            padding: 14px;
+            background: var(--ink);
+            color: var(--paper);
+            border: none;
+            font-family: 'Source Code Pro', monospace;
+            font-size: 0.9rem;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            cursor: pointer;
+            margin-top: 24px;
+            transition: background 0.2s;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .btn:hover:not(:disabled) { background: #333; }
+        .btn:disabled { background: var(--mid); cursor: not-allowed; }
+
+        .btn .spinner {
+            display: none;
+            position: absolute;
+            right: 16px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 18px;
+            height: 18px;
+            border: 2px solid rgba(255,255,255,0.3);
+            border-top-color: #fff;
+            border-radius: 50%;
+            animation: spin 0.7s linear infinite;
+        }
+
+        .btn.loading .spinner { display: block; }
+
+        @keyframes spin { to { transform: translateY(-50%) rotate(360deg); } }
+
+        .log-box {
+            width: 100%;
+            max-width: 600px;
+            display: none;
+        }
+
+        .log-box.visible { display: block; }
+
+        .log-header {
+            background: var(--ink);
+            color: var(--paper);
+            padding: 8px 16px;
+            font-size: 0.75rem;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .log-content {
+            background: #1a1410;
+            color: #a8d8a8;
+            font-family: 'Source Code Pro', monospace;
+            font-size: 0.8rem;
+            padding: 16px;
+            min-height: 120px;
+            max-height: 300px;
+            overflow-y: auto;
+            border: 1px solid var(--line);
+            border-top: none;
+            line-height: 1.7;
+        }
+
+        .log-content .err { color: #e88; }
+        .log-content .ok { color: #8e8; }
+        .log-content .info { color: #8af; }
+
+        .progress-bar-wrap {
+            width: 100%;
+            max-width: 600px;
+            margin-bottom: 20px;
+            display: none;
+        }
+
+        .progress-bar-wrap.visible { display: block; }
+
+        .progress-bar-bg {
+            height: 4px;
+            background: var(--line);
+            width: 100%;
+        }
+
+        .progress-bar-fill {
+            height: 4px;
+            background: var(--accent);
+            width: 0%;
+            transition: width 0.3s;
+        }
+
+        .result-card {
+            background: #f0faf0;
+            border: 1px solid #9dc89d;
+            border-left: 4px solid var(--success);
+            padding: 16px 20px;
+            width: 100%;
+            max-width: 600px;
+            margin-bottom: 20px;
+            display: none;
+            font-size: 0.85rem;
+            line-height: 1.8;
+        }
+
+        .result-card.visible { display: block; }
+        .result-card strong { font-weight: 700; color: var(--success); }
+
+        .back-link {
+            margin-top: 20px;
+            font-size: 0.8rem;
+            color: var(--mid);
+        }
+
+        .back-link a {
+            color: var(--accent);
+            text-decoration: none;
+        }
+
+        .back-link a:hover { text-decoration: underline; }
+
+        .radio-group {
+            display: flex;
+            gap: 16px;
+            margin-top: 8px;
+        }
+
+        .radio-label {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            color: var(--ink);
+            text-transform: none;
+            letter-spacing: 0;
+            margin-top: 0;
+        }
+
+        .radio-label input { cursor: pointer; accent-color: var(--accent); }
+
+        .folder-row {
+            display: flex;
+            gap: 10px;
+            margin-top: 6px;
+        }
+
+        .folder-row select { flex: 1; }
+        .folder-row input  { flex: 1; }
+
+        .hint {
+            font-size: 0.72rem;
+            color: var(--mid);
+            margin-top: 4px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="header">
+    <h1>Thêm Truyện</h1>
+    <p>Tải lên · Tách chương · Lưu vào thư viện</p>
+</div>
+
+<!-- STEP 1: Folder -->
+<div class="card">
+    <div class="card-title"><span class="num">1</span> Chọn / Tạo truyện</div>
+
+    <div class="radio-group" style="margin-bottom:12px">
+        <label class="radio-label">
+            <input type="radio" name="folder_mode" value="new" checked onchange="toggleFolderMode('new')">
+            Tạo truyện mới
+        </label>
+        <label class="radio-label">
+            <input type="radio" name="folder_mode" value="existing" onchange="toggleFolderMode('existing')">
+            Dùng truyện có sẵn
+        </label>
+    </div>
+
+    <div id="newFolderWrap">
+        <label>Tên truyện mới</label>
+        <input type="text" id="newFolderInput" placeholder="vd: Truyện Kiếm Hiệp: Tây Độc" autocomplete="off">
+        <p class="hint">Cho phép khoảng trắng, dấu, chữ đặc biệt. VD: Truyện Kiếm Hiệp, Họ (ký tự đặc biệt được hỗ trợ)</p>
+    </div>
+
+    <div id="existingFolderWrap" style="display:none">
+        <label>Chọn truyện</label>
+        <select id="existingFolderSelect"><option value="">-- đang tải --</option></select>
+    </div>
+</div>
+
+<!-- STEP 2: File -->
+<div class="card">
+    <div class="card-title"><span class="num">2</span> Chọn File .txt</div>
+
+    <div class="drop-zone" id="dropZone" onclick="document.getElementById('fileInput').click()">
+        <span class="icon">📄</span>
+        <p>Kéo thả file vào đây hoặc <strong>bấm để chọn</strong></p>
+        <p style="font-size:0.75rem; margin-top:6px;">Chỉ chấp nhận .txt · UTF-8</p>
+        <div class="file-name" id="fileNameDisplay"></div>
+    </div>
+    <input type="file" id="fileInput" accept=".txt" onchange="onFileSelected(event)">
+
+    <button class="btn" id="uploadBtn" onclick="doUpload()" disabled>
+        <span class="btn-text">Tải Lên & Tách File</span>
+        <span class="spinner"></span>
+    </button>
+</div>
+
+<!-- Progress -->
+<div class="progress-bar-wrap" id="progressWrap">
+    <div class="progress-bar-bg"><div class="progress-bar-fill" id="progressFill"></div></div>
+</div>
+
+<!-- Result -->
+<div class="result-card" id="resultCard"></div>
+
+<!-- Log -->
+<div class="log-box" id="logBox">
+    <div class="log-header">
+        <span>Nhật ký xử lý</span>
+        <span id="logCount">0 bước</span>
+    </div>
+    <div class="log-content" id="logContent"></div>
+</div>
+
+<div class="back-link">← <a href="/">Quay về trang chủ</a></div>
+
+<script>
+    let selectedFile = null;
+
+    // Load existing folders on page load
+    window.onload = async function() {
+        try {
+            const res = await fetch('/api/list_files');
+            const data = await res.json();
+            const sel = document.getElementById('existingFolderSelect');
+            sel.innerHTML = '';
+            const folders = Object.keys(data);
+            if (folders.length === 0) {
+                sel.innerHTML = '<option value="">-- chưa có truyện nào --</option>';
+            } else {
+                folders.forEach(f => {
+                    const opt = document.createElement('option');
+                    opt.value = f; opt.textContent = f;
+                    sel.appendChild(opt);
+                });
+            }
+        } catch(e) {
+            document.getElementById('existingFolderSelect').innerHTML = '<option value="">-- lỗi tải danh sách --</option>';
+        }
+    };
+
+    function toggleFolderMode(mode) {
+        document.getElementById('newFolderWrap').style.display      = mode === 'new'      ? '' : 'none';
+        document.getElementById('existingFolderWrap').style.display = mode === 'existing' ? '' : 'none';
+    }
+
+    // Drag & drop
+    const dz = document.getElementById('dropZone');
+    dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('drag-over'); });
+    dz.addEventListener('dragleave', () => dz.classList.remove('drag-over'));
+    dz.addEventListener('drop', e => {
+        e.preventDefault(); dz.classList.remove('drag-over');
+        const files = e.dataTransfer.files;
+        if (files.length) handleFile(files[0]);
+    });
+
+    function onFileSelected(e) { if (e.target.files.length) handleFile(e.target.files[0]); }
+
+    function handleFile(file) {
+        if (!file.name.toLowerCase().endsWith('.txt')) {
+            alert('Chỉ chấp nhận file .txt!'); return;
+        }
+        selectedFile = file;
+        document.getElementById('fileNameDisplay').textContent = '✓ ' + file.name + ' (' + (file.size / 1024).toFixed(1) + ' KB)';
+        document.getElementById('uploadBtn').disabled = false;
+    }
+
+    function log(msg, cls = '') {
+        const box = document.getElementById('logContent');
+        const line = document.createElement('div');
+        if (cls) line.className = cls;
+        line.textContent = '» ' + msg;
+        box.appendChild(line);
+        box.scrollTop = box.scrollHeight;
+        const cnt = document.getElementById('logCount');
+        cnt.textContent = box.children.length + ' bước';
+    }
+
+    function setProgress(pct) {
+        document.getElementById('progressFill').style.width = pct + '%';
+    }
+
+    async function doUpload() {
+        const mode = document.querySelector('input[name="folder_mode"]:checked').value;
+        let folderName = '';
+        if (mode === 'new') {
+            folderName = document.getElementById('newFolderInput').value.trim();
+            if (!folderName) { alert('Vui lòng nhập tên truyện!'); return; }
+        } else {
+            folderName = document.getElementById('existingFolderSelect').value;
+            if (!folderName) { alert('Vui lòng chọn truyện!'); return; }
+        }
+
+        if (!selectedFile) { alert('Vui lòng chọn file .txt!'); return; }
+
+        // UI loading
+        const btn = document.getElementById('uploadBtn');
+        btn.disabled = true;
+        btn.classList.add('loading');
+        btn.querySelector('.btn-text').textContent = 'Đang xử lý...';
+
+        document.getElementById('logBox').classList.add('visible');
+        document.getElementById('progressWrap').classList.add('visible');
+        document.getElementById('resultCard').classList.remove('visible');
+        document.getElementById('logContent').innerHTML = '';
+        setProgress(5);
+
+        log('Bắt đầu tải lên: ' + selectedFile.name, 'info');
+        log('Thư mục đích: ' + folderName, 'info');
+
+        const formData = new FormData();
+        formData.append('file', selectedFile);
+        formData.append('folder', folderName);
+
+        try {
+            setProgress(20);
+            log('Đang gửi file lên máy chủ...');
+
+            const res = await fetch('/api/upload_split', {
+                method: 'POST',
+                body: formData
+            });
+
+            setProgress(50);
+
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({ error: 'HTTP ' + res.status }));
+                throw new Error(err.error || 'Upload thất bại');
+            }
+
+            // SSE stream for progress
+            log('Đang phân tích & tách file...', 'info');
+
+            // Use streaming response
+            const reader = res.body ? null : null; // fallback: re-fetch SSE endpoint
+
+            const data = await res.json();
+            setProgress(90);
+
+            if (data.error) throw new Error(data.error);
+
+            // Log individual steps from server
+            if (data.steps) {
+                data.steps.forEach(s => log(s.msg, s.ok ? 'ok' : s.err ? 'err' : 'info'));
+            }
+
+            setProgress(100);
+            log('Hoàn thành!', 'ok');
+
+            const rc = document.getElementById('resultCard');
+            rc.classList.add('visible');
+            rc.innerHTML = `<strong>✓ Thành công!</strong><br>
+Truyện: <code>${data.folder}</code><br>
+Số file con: <strong>${data.file_count}</strong><br>
+${data.files ? data.files.slice(0,5).map(f => '📄 ' + f).join('<br>') : ''}
+${data.files && data.files.length > 5 ? '<br>...và ' + (data.files.length - 5) + ' file khác' : ''}
+<br><br><a href="/" style="color:#2c7a3a; font-weight:700;">→ Vào trang nghe</a>`;
+
+        } catch(e) {
+            log('Lỗi: ' + e.message, 'err');
+            setProgress(0);
+            alert('Lỗi: ' + e.message);
+        } finally {
+            btn.disabled = false;
+            btn.classList.remove('loading');
+            btn.querySelector('.btn-text').textContent = 'tải lên txt gộp chương';
+        }
+    }
+</script>
+</body>
+</html>
